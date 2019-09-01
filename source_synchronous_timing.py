@@ -43,13 +43,22 @@ class Timing:
     def _calc(self):
         self.source_setup = self.setup + self.source_setup_margin
         self.source_hold = self.hold + self.source_hold_margin
-        self.sink_setup = self.setup + self.sink_setup_margin
-        self.sink_hold = self.hold + self.sink_hold_margin
+        self.sink_setup = self.setup - self.sink_setup_margin
+        self.sink_hold = self.hold - self.sink_hold_margin
 
         self.source_min_output_delay = -self.source_hold
         self.source_max_output_delay = self.source_setup
         self.sink_min_input_delay = self.sink_hold
         self.sink_max_input_delay = self.period - self.sink_setup
+
+        self.overall_setup_margin = self.source_setup - self.sink_setup
+        self.overall_hold_margin = self.source_hold - self.sink_hold
+
+        if self.overall_setup_margin < 0:
+            print("WARNING: overall setup margin <0")
+
+        if self.overall_hold_margin < 0:
+            print("WARNING: overall hold margin <0")
 
         # todo: how to model signals back from sink to source?
 
@@ -64,7 +73,9 @@ class Timing:
                     self.source_min_output_delay,
                     self.source_max_output_delay,
                     self.sink_min_input_delay,
-                    self.sink_max_input_delay)
+                    self.sink_max_input_delay,
+                    self.overall_setup_margin,
+                    self.overall_hold_margin)
 
     def print_source_constraints(self):
         print("# output delay min: %g" % self.source_min_output_delay)
@@ -88,8 +99,8 @@ class Timing:
         print("set period {}".format(self.period))
         print("set t_SU_margin {}".format(self.sink_setup_margin))
         print("set t_HO_margin {}".format(self.sink_hold_margin))
-        print("set t_SU_value [expr t_SU + t_SU_margin]")
-        print("set t_HO_value [expr t_HO + t_HO_margin]")
+        print("set t_SU_value [expr t_SU - t_SU_margin]")
+        print("set t_HO_value [expr t_HO - t_HO_margin]")
         print("set_input_delay -clock <CLK> -min [get_ports <DATA>] $t_HO_value")
         print("set_input_delay -clock <CLK> -max -add_delay [get_ports <DATA>] [expr $period - $t_SU_value]")
 
@@ -150,10 +161,12 @@ class Plot():
              source_min_output_delay,
              source_max_output_delay,
              sink_min_input_delay,
-             sink_max_input_delay):
+             sink_max_input_delay,
+             margin_setup,
+             margin_hold):
         begin = -max(source_setup, sink_setup, period*0.1)*1.1
         end = max(source_hold, sink_hold, period*0.1)*1.1 + period
-        clock_offset = 6
+        clock_offset = 6.5
         source_offset = 4.5
         sink_offset = 2
 
@@ -181,6 +194,9 @@ class Plot():
         ax.axvline(x=period - sink_setup, linewidth=0.5, color='black')
         ax.axvline(x=period, linewidth=0.5, color='black')
 
+        self._annotated_arrow(ax, sink_hold, source_hold, clock_offset - 0, "$margin_{HO}=%g$" % margin_hold, period/100.0, True)
+        self._annotated_arrow(ax, period - sink_setup, period - source_setup, clock_offset - 0, "$margin_{SU}=%g$" % margin_setup, period/100.0, True)
+
         self._annotated_arrow(ax, 0, source_hold, source_offset, "$t_{HO}=%g$" % source_hold, period/100.0, True)
         self._annotated_arrow(ax, period, period - source_setup, source_offset, "$t_{SU}=%g$" % source_setup, period/100.0, True)
         self._annotated_arrow(ax, 0, sink_hold, sink_offset, "$t_{HO}=%g$" % sink_hold, period/100.0, True)
@@ -191,8 +207,14 @@ class Plot():
         self._annotated_arrow(ax, 0, sink_hold, sink_offset - 0.5, "$in_{min}=%g$" % sink_min_input_delay, period/100.0, True)
         self._annotated_arrow(ax, 0, sink_max_input_delay, sink_offset - 1, "$in_{max}=%g$" % sink_max_input_delay, period/100.0, True)
 
-        ax.axvspan(0 - setup, hold, alpha=0.1, color='blue')
-        ax.axvspan(period - setup, period + hold, alpha=0.1, color='blue')
+        ax.axvspan(0 - setup, hold, alpha=0.2, color='green')
+        ax.axvspan(hold, source_hold, alpha=0.2, color='grey')
+        ax.axvspan(period - setup, period + hold, alpha=0.2, color='green')
+        ax.axvspan(period - source_setup, period - setup, alpha=0.2, color='grey')
+
+        leg = ax.legend(loc='lower right', bbox_to_anchor=(1.2, 0.9), handles=[
+            matplotlib.patches.Patch(color='green', alpha=0.2, label='Setup/Hold Area'),
+            matplotlib.patches.Patch(color='grey', alpha=0.2, label='Source Margin')])
 
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
